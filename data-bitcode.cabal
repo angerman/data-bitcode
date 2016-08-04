@@ -1,38 +1,46 @@
+-- This file has been generated from package.yaml by hpack version 0.14.1.
+--
+-- see: https://github.com/sol/hpack
+
 name:                data-bitcode
 version:             0.1.0.0
-synopsis:            bitcode reader and writer.
-description:         Please see README.md
+synopsis:            bitcode reader and writer
 homepage:            https://github.com/lichtzwerge/data-bitcode#readme
+bug-reports:         https://github.com/lichtzwerge/data-bitcode/issues
+author:              Moritz Angermann <moritz@lichtzwerge.de>
+maintainer:          Moritz Angermann <moritz@lichtzwerge.de>
+copyright:           lichtzwerge GmbH
 license:             BSD3
 license-file:        LICENSE
-author:              Moritz Angermann
-maintainer:          moritz@lichtzwerge.de
-copyright:           lichtzwerge GmbH
 category:            Code Generation
 build-type:          Simple
--- extra-source-files:
-cabal-version:       >=1.10
-
-library
-  hs-source-dirs:      src
-  exposed-modules:     Data.BitCode
-                     , Data.BitCode.AbbrevOpEncoding
-                     , Data.BitCode.Codes.BlockInfo
-                     , Data.BitCode.IDs.FixedAbbrev
-                     , Data.BitCode.IDs.StandardBlock
-                     , Data.BitCode.Reader
-                     , Data.BitCode.Reader.Monad
-                     , Data.BitCode.Reader.Combinators
-                     , Data.BitCode.Reader.FromBits
-                     , Data.BitCode.Writer
-                     , Data.BitCode.Writer.Monad
-                     , Data.BitCode.Writer.Combinators
-                     , Data.BitCode.Writer.ToBits
-  build-depends:       base >= 4.7 && < 5
-                     , bytestring >= 0.10
-                     , base16-bytestring
-  default-language:    Haskell2010
+cabal-version:       >= 1.10
 
 source-repository head
-  type:     git
+  type: git
   location: https://github.com/lichtzwerge/data-bitcode
+
+library
+  hs-source-dirs:
+      src
+  exposed-modules:
+      Data.BitCode
+      Data.BitCode.Abbreviation
+      Data.BitCode.AbbrevOpEncoding
+      Data.BitCode.Codes.BlockInfo
+      Data.BitCode.IDs.FixedAbbrev
+      Data.BitCode.IDs.StandardBlock
+      Data.BitCode.Reader
+      Data.BitCode.Reader.Combinators
+      Data.BitCode.Reader.FromBits
+      Data.BitCode.Reader.Monad
+      Data.BitCode.Writer
+      Data.BitCode.Writer.Combinators
+      Data.BitCode.Writer.Monad
+      Data.BitCode.Writer.ToBits
+  build-depends:
+      base >= 4.7 && < 5
+    , pretty >= 1.1
+    , bytestring >= 0.10
+    , base16-bytestring
+  default-language: Haskell2010

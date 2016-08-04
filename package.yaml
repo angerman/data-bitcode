@@ -1,0 +1,19 @@
+name: data-bitcode
+version: 0.1.0.0
+synopsis: bitcode reader and writer
+license: BSD3
+author: Moritz Angermann <moritz@lichtzwerge.de>
+maintainer: Moritz Angermann <moritz@lichtzwerge.de>
+copyright: lichtzwerge GmbH
+category: Code Generation
+
+github: lichtzwerge/data-bitcode
+
+dependencies:
+  - base >= 4.7 && < 5
+  - pretty >= 1.1
+  - bytestring >= 0.10
+  - base16-bytestring
+
+library:
+  source-dirs: src

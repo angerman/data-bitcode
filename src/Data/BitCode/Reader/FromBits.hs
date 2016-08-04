@@ -41,7 +41,7 @@ instance FromBits Char where
           decodeChar6 62 = '.'
           decodeChar6 c | 0  <= c && c < 26 = toEnum $ c + fromEnum 'a'
           decodeChar6 c | 26 <= c && c < 52 = toEnum $ c - 26 + fromEnum 'A'
-          decodeChar6 c | 52 <= c && c < 61 = toEnum $ c - 52 + fromEnum '0'
+          decodeChar6 c | 52 <= c && c < 62 = toEnum $ c - 52 + fromEnum '0'
 
 parseEncField :: [Op] -> BitCodeReader ([Field],[Op])
 parseEncField (Lit v:xs)         = (,xs) . pure <$> pure (W64 v)
