@@ -7,7 +7,7 @@ maintainer: Moritz Angermann <moritz@lichtzwerge.de>
 copyright: lichtzwerge GmbH
 category: Code Generation
 
-github: lichtzwerge/data-bitcode
+github: angerman/data-bitcode
 
 dependencies:
   - base >= 4.7 && < 5

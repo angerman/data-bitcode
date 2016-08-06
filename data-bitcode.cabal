@@ -5,8 +5,8 @@
 name:                data-bitcode
 version:             0.1.0.0
 synopsis:            bitcode reader and writer
-homepage:            https://github.com/lichtzwerge/data-bitcode#readme
-bug-reports:         https://github.com/lichtzwerge/data-bitcode/issues
+homepage:            https://github.com/angerman/data-bitcode#readme
+bug-reports:         https://github.com/angerman/data-bitcode/issues
 author:              Moritz Angermann <moritz@lichtzwerge.de>
 maintainer:          Moritz Angermann <moritz@lichtzwerge.de>
 copyright:           lichtzwerge GmbH
@@ -18,7 +18,7 @@ cabal-version:       >= 1.10
 
 source-repository head
   type: git
-  location: https://github.com/lichtzwerge/data-bitcode
+  location: https://github.com/angerman/data-bitcode
 
 library
   hs-source-dirs:
