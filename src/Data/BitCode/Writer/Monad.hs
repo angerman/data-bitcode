@@ -23,11 +23,14 @@ import Data.ByteString.Base16 (encode)
 
 import Data.BitCode
 
+import Data.Sequence (Seq(..), fromList)
+import Data.Foldable (toList)
+
 -- * BitCode
-data BitC = BitC { _words :: Int, _bits :: Int, _body :: Bits } deriving (Show)
+data BitC = BitC { _words :: Int, _bits :: Int, _body :: Seq Bool } deriving (Show)
 
 instance Monoid BitC where
-  mempty = BitC 0 0 []
+  mempty = BitC 0 0 mempty
   (BitC w l bs) `mappend` (BitC w' l' bs') = BitC (w+w' + ((l+l') `div` 32)) ((l+l') `mod` 32) (bs `mappend` bs')
 
 -- * BitCode Writer Monad (with access to the current state)
@@ -40,7 +43,7 @@ evalBitCodeWriter :: BitCodeWriter a -> a
 evalBitCodeWriter = fst . runBitCodeWriter
 
 execBitCodeWriter :: BitCodeWriter a -> Bits
-execBitCodeWriter = _body . snd . runBitCodeWriter
+execBitCodeWriter = toList . _body . snd . runBitCodeWriter
 
 class ToBits a where
   emit :: a -> BitCodeWriter ()
@@ -74,7 +77,7 @@ instance Monoid (BitCodeWriter ()) where
 tell :: Bits -> BitCodeWriter ()
 tell bs = BitCode $ \b -> ((), b `mappend` b')
   where n = length bs
-        b' = BitC (n `div` 32) (n `mod` 32) bs
+        b' = BitC (n `div` 32) (n `mod` 32) (fromList bs)
 
 -- | Get the number of words and bits in the stream.
 ask :: BitCodeWriter (Int, Int)
@@ -86,6 +89,7 @@ partition _ [] = []
 partition n xs | length xs < n = [xs]
 partition n xs | otherwise = h:partition n t
   where (h,t) = (take n xs, drop n xs)
+
 toBytes :: Bits -> [Word8]
 toBytes = map toFiniteBits . partition 8
   where toFiniteBits :: (FiniteBits a) => Bits -> a
@@ -100,7 +104,7 @@ ppBitCodeWriter :: BitCodeWriter () -> PP.Doc
 ppBitCodeWriter w = PP.vcat [ PP.text "* Bitcode"
                             , PP.text "words =" PP.<+> PP.int (_words b)
                             , PP.text "bits =" PP.<+> PP.int (_bits b)
-                            , PP.text "body =" PP.<+> ppBitsAndBytes (_body b)
+                            , PP.text "body =" PP.<+> ppBitsAndBytes (toList $ _body b)
                             ]
   where b = snd (runBitCodeWriter w)
         toBitString :: Bits -> String

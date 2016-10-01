@@ -43,6 +43,7 @@ library
     , pretty >= 1.1
     , bytestring >= 0.10
     , binary >= 0.8
+    , containers >= 0.5
     , base16-bytestring
   default-language: Haskell2010
 
@@ -57,6 +58,7 @@ benchmark writer
     , pretty >= 1.1
     , bytestring >= 0.10
     , binary >= 0.8
+    , containers >= 0.5
     , base16-bytestring
     , criterion
     , data-bitcode
