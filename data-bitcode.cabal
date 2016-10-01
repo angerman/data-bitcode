@@ -42,5 +42,6 @@ library
       base >= 4.7 && < 5
     , pretty >= 1.1
     , bytestring >= 0.10
+    , binary >= 0.8
     , base16-bytestring
   default-language: Haskell2010

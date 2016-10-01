@@ -1,12 +1,15 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode where
 
 import Data.Word  (Word32, Word64)
 import Data.Maybe (catMaybes)
 import Data.Bits (FiniteBits, finiteBitSize, countLeadingZeros)
 
+import GHC.Generics                      (Generic)
+import Data.Binary                       (Binary)
 
 --- Bit Codes ------------------------------------------------------------------
 -- see BitCodes.h (e.g. http://llvm.org/docs/doxygen/html/BitCodes_8h_source.html)
@@ -29,12 +32,16 @@ data EncVal = Fixed !Val   -- code 1 fixed value
                                            -- when reading an array, the first is a vbr6 field indicating the length.
             | Char6        -- code 4 6-bit char
             | Blob         -- code 5 note: the value for this is: [vbr6:val,pad32bit,8bit array,pad32bit]
-            deriving Show
+            deriving (Show, Generic)
+
+instance Binary EncVal
 
 -- | Operators for abbreviated records, are encoded as either literal (1) or encoded value (0).
 data Op = Lit !Val          -- [1,vbr8:val]
         | Enc !EncVal       -- [0,f3:enc(,vbr5:val)?], vbr5 value only if given.
-        deriving Show
+        deriving (Show, Generic)
+
+instance Binary Op
 
 -- | The Fields contained in an abbreviated record can be one of the following.
 data Field = Vbr !Int !Val
@@ -47,7 +54,9 @@ data Field = Vbr !Int !Val
                               --       abbreviated record matches the def abbrev. This could be considered
                               --       a TODO, as it would be an improvement to enforce the that AbbrevRecord
                               --       matches the actuall DefAbbrev.
-           deriving Show
+           deriving (Show, Generic)
+
+instance Binary Field
 
 -- | Bit Code Data consists of a series of blocks. Their interpretation is dependent
 -- on the container they are in.  The top level blocks are emitted with an abbreviation
@@ -73,7 +82,9 @@ data BitCode
                  , aRecordFields :: ![Field]
                  }
   | Located { srcLoc :: (Loc, Loc), unLoc :: !BitCode }
-  deriving Show
+  deriving (Show, Generic)
+
+instance Binary BitCode
 
 -- | BitCode contains some additional control information,
 -- like abbreviation records, or the BLOCKINFO block, which
@@ -85,7 +96,9 @@ data BitCode
 data NBitCode
   = NBlock !BlockId ![NBitCode]
   | NRec   !Code    ![Val]
-  deriving Show
+  deriving (Show, Generic)
+
+instance Binary NBitCode
 
 idOrCode :: NBitCode -> Int
 idOrCode (NBlock i _) = i
