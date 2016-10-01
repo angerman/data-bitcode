@@ -1,0 +1,6 @@
+resolver: lts-7.1
+packages:
+  - '.'
+
+# system-ghc: true
+compiler: ghc-8.0.1
