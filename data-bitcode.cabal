@@ -45,3 +45,21 @@ library
     , binary >= 0.8
     , base16-bytestring
   default-language: Haskell2010
+
+benchmark writer
+  type: exitcode-stdio-1.0
+  main-is: Bench.hs
+  hs-source-dirs:
+      bench/src
+  ghc-options: -main-is Bench
+  build-depends:
+      base >= 4.7 && < 5
+    , pretty >= 1.1
+    , bytestring >= 0.10
+    , binary >= 0.8
+    , base16-bytestring
+    , criterion
+    , data-bitcode
+  other-modules:
+      Bench
+  default-language: Haskell2010

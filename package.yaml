@@ -18,3 +18,11 @@ dependencies:
 
 library:
   source-dirs: src
+
+benchmarks:
+  writer:
+    dependencies:
+      - criterion
+      - data-bitcode
+    source-dirs: bench/src
+    main: Bench

@@ -9,7 +9,7 @@ import Data.Maybe (catMaybes)
 import Data.Bits (FiniteBits, finiteBitSize, countLeadingZeros)
 
 import GHC.Generics                      (Generic)
-import Data.Binary                       (Binary)
+import Data.Binary                       (Binary, decodeFile)
 
 --- Bit Codes ------------------------------------------------------------------
 -- see BitCodes.h (e.g. http://llvm.org/docs/doxygen/html/BitCodes_8h_source.html)
