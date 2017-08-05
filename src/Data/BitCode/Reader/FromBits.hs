@@ -51,6 +51,7 @@ parseEncField (Enc Arr:op:xs)    = do len <- parseVBR 6
                                       fields <- replicateM len (fst <$> parseEncField [op])
                                       return ((Len (fromIntegral len)):concat fields, xs)
 parseEncField (Enc Char6:xs)     = (,xs) . pure . Chr <$> parse
+parseEncField (op:_)             = fail $ "*** Can not handle ops: " ++ show op
 
 parseBlock :: Int -> AbbrevMap -> BitCodeReader BitCode
 parseBlock n abbrevs = parseLocated (parseSubBlock n <|> parseUnabbrevRecord n <|> parseDefAbbrevRecord n <|> parseAbbrevRecord n abbrevs)
