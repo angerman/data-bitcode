@@ -85,6 +85,7 @@ ask :: BitCodeWriter (Int, Int)
 ask = BitCode $ \b@(BitC ws bs _) -> ((ws,bs),b)
 
 -- * Utility
+
 partition :: Int -> Bits -> [Bits]
 partition _ [] = []
 partition n xs | length xs < n = [xs]
@@ -92,9 +93,27 @@ partition n xs | otherwise = h:partition n t
   where (h,t) = (take n xs, drop n xs)
 
 toBytes :: Bits -> [Word8]
-toBytes = map toFiniteBits . partition 8
-  where toFiniteBits :: (FiniteBits a) => Bits -> a
-        toFiniteBits = foldl setBit zeroBits . map fst . filter ((== True) . snd) . zip [0..]
+toBytes = go
+  where
+    go (b0:b1:b2:b3:b4:b5:b6:b7:rest) =
+        let byte =
+                theBit 0 b0
+              $ theBit 1 b1
+              $ theBit 2 b2
+              $ theBit 3 b3
+              $ theBit 4 b4
+              $ theBit 5 b5
+              $ theBit 6 b6
+              $ theBit 7 b7
+                zeroBits
+        in byte : go rest
+      where
+        theBit :: Int -> Bool -> Word8 -> Word8
+        theBit n True  = flip setBit n
+        theBit _ False = id
+    go [] = []
+    go bs = go (take 8 $ bs ++ [False, False, False, False
+                               ,False, False, False, False])
 
 -- * Writing out to file.
 writeFile :: FilePath -> BitCodeWriter () -> IO ()
