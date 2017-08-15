@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto #-} 
 {-# LANGUAGE TupleSections     #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Data.BitCode.Writer.ToBits where

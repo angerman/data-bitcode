@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto #-} 
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Data.BitCode.Writer.Monad

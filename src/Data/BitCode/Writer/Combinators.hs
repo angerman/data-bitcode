@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto #-} 
 module Data.BitCode.Writer.Combinators where
 
 import Data.BitCode
