@@ -2,6 +2,8 @@
 {-# LANGUAGE LambdaCase        #-}
 module Data.BitCode.Reader.FromBits where
 
+import Prelude hiding (fromEnum, toEnum)
+
 import Data.Word (Word8, Word64)
 import Control.Applicative ((<|>))
 import Control.Monad (replicateM)
@@ -36,7 +38,7 @@ instance FromBits Op where
 
 instance FromBits Char where
   parse = decodeChar6 <$> parseFixed 6
-    where decodeChar6 :: Int -> Char
+    where decodeChar6 :: Word64 -> Char
           decodeChar6 63 = '_'
           decodeChar6 62 = '.'
           decodeChar6 c | 0  <= c && c < 26 = toEnum $ c + fromEnum 'a'
@@ -70,10 +72,10 @@ parseBlock n abbrevs = parseLocated (parseSubBlock n <|> parseUnabbrevRecord n <
           readFixed newWidth (fromEnum END_BLOCK)
           skipTo32bits
           if id == 0 then processBlockInfo blocks else return ()
-          return $ Block id newWidth blocks
+          return $ Block id (fromIntegral newWidth) blocks
             where processBlockInfo :: [BitCode] -> BitCodeReader ()
                   processBlockInfo = go 0
-                    where go :: Int -> [BitCode] -> BitCodeReader ()
+                    where go :: Word64 -> [BitCode] -> BitCodeReader ()
                           go _ [] = pure ()
                           go id (Located _ r:bs) = go id (r:bs) -- ignore Located blocks, and just recurse to the contained block.
                           go _ ((UnabbrevRecord 1 [id]):bs) = go (fromIntegral id) bs

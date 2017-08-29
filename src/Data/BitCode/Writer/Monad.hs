@@ -1,6 +1,8 @@
-{-# OPTIONS_GHC -fprof-auto #-} 
+{-# OPTIONS_GHC -fprof-auto #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE BangPatterns         #-}
 module Data.BitCode.Writer.Monad
   ( BitCodeWriter
   , evalBitCodeWriter, execBitCodeWriter
@@ -24,21 +26,36 @@ import Data.ByteString.Base16 (encode)
 
 import Data.BitCode
 
+import Control.Monad.Trans.State
+
 import Data.Sequence (Seq(..), fromList)
 import Data.Foldable (toList)
 
+import GHC.Stack (HasCallStack)
+
 -- * BitCode
-data BitC = BitC { _words :: Int, _bits :: Int, _body :: Seq Bool } deriving (Show)
+data BitC = BitC { _words :: Int
+                 , _bits :: Int
+                 , _body :: (Seq Bool)
+                 } deriving (Show)
 
 instance Monoid BitC where
   mempty = BitC 0 0 mempty
-  (BitC w l bs) `mappend` (BitC w' l' bs') = BitC (w+w' + ((l+l') `div` 32)) ((l+l') `mod` 32) (bs `mappend` bs')
+  mappend !(BitC w l bs) !(BitC w' l' bs') = let (!d,!m) = (l+l') `divMod` 32 in BitC (w+w' + d) m (bs `mappend` bs')
 
 -- * BitCode Writer Monad (with access to the current state)
-newtype BitCodeWriter a = BitCode { unBitCode :: BitC -> (a, BitC) }
+newtype BitCodeWriter a = BitCode { unBitCode :: State BitC a }
+  deriving (Functor, Applicative, Monad)
+
+modifyBits :: HasCallStack => (BitC -> BitC) -> BitCodeWriter ()
+modifyBits = BitCode . modify
+modifyBits' :: HasCallStack => (BitC -> BitC) -> BitCodeWriter ()
+modifyBits' = BitCode . modify'
+getsBits :: HasCallStack => (BitC -> a) -> BitCodeWriter a
+getsBits = BitCode . gets
 
 runBitCodeWriter :: BitCodeWriter a -> (a, BitC)
-runBitCodeWriter = flip unBitCode mempty
+runBitCodeWriter = flip runState mempty . unBitCode
 
 evalBitCodeWriter :: BitCodeWriter a -> a
 evalBitCodeWriter = fst . runBitCodeWriter
@@ -49,23 +66,7 @@ execBitCodeWriter = toList . _body . snd . runBitCodeWriter
 class ToBits a where
   emit :: a -> BitCodeWriter ()
 
--- * Functor
-instance Functor BitCodeWriter where
-  fmap f m = BitCode $ \b -> let (a, b') = unBitCode m b
-                             in (f a, b')
--- * Applicative
-instance Applicative BitCodeWriter where
-  pure a = BitCode $ \b -> (a, b)
-
-  m <*> n = BitCode $ \b ->
-    let (f, b') = unBitCode m b
-        (x, b'') = unBitCode n b'
-    in (f x, b' `mappend` b'')
-
--- * Monad
-instance Monad BitCodeWriter where
-  m >>= n = BitCode $ \b -> let (a, b') = unBitCode m b in unBitCode (n a) b'
-
+{-
 -- * Monoid
 instance Monoid (BitCodeWriter ()) where
   mempty = pure ()
@@ -73,16 +74,17 @@ instance Monoid (BitCodeWriter ()) where
     let (_, a) = unBitCode m b
         (_, b) = unBitCode n b
     in ((), a `mappend` b)
+-}
 
 -- * Low Level BitCode Functions (These need to know about BitCode and BitC)
 tell :: Bits -> BitCodeWriter ()
-tell bs = BitCode $ \b -> ((), b `mappend` b')
-  where n = length bs
-        b' = BitC (n `div` 32) (n `mod` 32) (fromList bs)
+tell bs = modifyBits' (\b -> b `mappend` b')
+  where !n = length bs
+        !b' = BitC (n `div` 32) (n `mod` 32) (fromList bs)
 
 -- | Get the number of words and bits in the stream.
 ask :: BitCodeWriter (Int, Int)
-ask = BitCode $ \b@(BitC ws bs _) -> ((ws,bs),b)
+ask = getsBits (\(BitC ws bs _) -> (ws,bs))
 
 -- * Utility
 

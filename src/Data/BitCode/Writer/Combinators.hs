@@ -1,25 +1,51 @@
-{-# OPTIONS_GHC -fprof-auto #-} 
+{-# OPTIONS_GHC -fprof-auto #-}
+{-# LANGUAGE BangPatterns #-}
 module Data.BitCode.Writer.Combinators where
+
+import Prelude hiding (fromEnum, toEnum)
 
 import Data.BitCode
 import Data.BitCode.Writer.Monad
 import Data.Word (Word8, Word32)
-import Data.Bits (FiniteBits, testBit, popCount, shift)
+import Data.Bits (FiniteBits, testBit, popCount, shift, finiteBitSize, countLeadingZeros, setBit, (.|.), (.&.), zeroBits)
+
+import Debug.Trace
+
+highBit :: FiniteBits a => a -> Int
+highBit x = finiteBitSize x - countLeadingZeros x
 
 -- * BitCode Functions
 emitBit :: Bit -> BitCodeWriter ()
 emitBit = tell . pure
 emitBits :: Int -> Bool -> BitCodeWriter ()
-emitBits n = tell . replicate n
-emitFixed :: (FiniteBits a) => Int -> a -> BitCodeWriter ()
-emitFixed n x = tell [testBit x i | i <- [0..(n-1)]]
-emitVBR :: (FiniteBits a) => Int -> a -> BitCodeWriter ()
-emitVBR n x = do
-  emitFixed (n-1) x
-  let tail = shift x (-n+1)
-    in if popCount tail > 0
-       then emitBit True >> emitVBR n tail
-       else emitBit False
+emitBits n b = tell $! replicate n b
+emitFixed :: (Show a, FiniteBits a) => Int -> a -> BitCodeWriter ()
+emitFixed !n !x = tell $! [testBit x i | i <- [0..(n-1)]]
+-- [WARN] This assums it can "emitFixed" the smae type it is
+--        feed into. However we will use a few more bits and thus
+--        may overflow.
+emitVBR :: (Num a, Show a, FiniteBits a) => Int -> a -> BitCodeWriter ()
+emitVBR !n !x = emitFixed (n*chunks) $ go size x
+  where size   = highBit x
+        n'     = n - 1      -- chunks are of size n-1 + follow bit.
+        chunks = case size `divMod` n' of
+                   (0,0) -> 1
+                   (d,0) -> d
+                   (d,_) -> d+1
+        chunkMask :: (Num a, FiniteBits a) => a
+        chunkMask = (setBit 0 n') - 1
+        followBit :: FiniteBits a => a
+        followBit = (setBit zeroBits n')
+        go :: (Num a, FiniteBits a) => Int -> a -> a
+        go m x | m < n     = x .&. chunkMask
+               | otherwise = shift (go (m-n') (shift x (-n'))) n .|. ((x .&. chunkMask) .|. followBit) 
+  
+  -- emitFixed (n-1) x
+  -- let tail = shift x (-n+1)
+--    in if popCount tail > 0
+       -- then emitBit True >> emitVBR n tail
+       -- else emitBit False
+
 
 -- * Utility BitCode Functions
 emitWord8 :: Word8 -> BitCodeWriter ()

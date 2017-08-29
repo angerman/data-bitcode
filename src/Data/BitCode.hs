@@ -4,6 +4,10 @@
 {-# LANGUAGE DeriveGeneric #-}
 module Data.BitCode where
 
+
+import Prelude hiding (fromEnum, toEnum)
+import qualified Prelude as P
+
 import Data.Word  (Word32, Word64)
 import Data.Maybe (catMaybes)
 import Data.Bits (FiniteBits, finiteBitSize, countLeadingZeros)
@@ -18,8 +22,8 @@ type Bit = Bool
 type Bits = [Bool]
 
 -- * BitCode
-type BlockId = Int
-type Code    = Int
+type BlockId = Word64
+type Code    = Word64
 
 -- * Source location
 type Loc = (Int, Int) -- Words, Bits
@@ -44,8 +48,8 @@ data Op = Lit !Val          -- [1,vbr8:val]
 instance Binary Op
 
 -- | The Fields contained in an abbreviated record can be one of the following.
-data Field = Vbr !Int !Val
-           | Fix !Int !Val
+data Field = Vbr !Word64 !Val
+           | Fix !Word64 !Val
            | Len !Val
            | Chr !Char
            | W64 !Val         -- Literal values. These are not bein emitted.
@@ -67,7 +71,7 @@ data BitCode
   -- Layout: [1,vbr8:id,vbr4:newabbrevlen,<align32bits>,32bit:blocklen,<blocklen * words>,0,<align32bits>]
   -- 1 and 0 are vbr(current abbrev len); starting with 2 at the top level.
   = Block { blockId        :: !BlockId   -- ^ id
-          , blockAbbrevLen :: !Int       -- ^ abbrev len
+          , blockAbbrevLen :: !Word64    -- ^ abbrev len
           , blockBody      :: ![BitCode] -- ^ body
           }
   -- | A abbreviation definition record. Layout: [2,vbr5:#ops,op0,op1,...]
@@ -100,7 +104,13 @@ data NBitCode
 
 instance Binary NBitCode
 
-idOrCode :: NBitCode -> Int
+toEnum :: Enum a => Word64 -> a
+toEnum = P.toEnum . fromIntegral
+
+fromEnum :: Enum a => a -> Word64
+fromEnum = fromIntegral . P.fromEnum
+
+idOrCode :: NBitCode -> Word64
 idOrCode (NBlock i _) = i
 idOrCode (NRec i _) = i
 
@@ -138,9 +148,9 @@ bitWidth x = finiteBitSize x - countLeadingZeros x
 denormalize :: NBitCode -> BitCode
 denormalize (NBlock id bs) = let bs' = map denormalize bs
                                  ids = map idOrCode bs
-                                 abbrevWidth = if ids == []
-                                               then 0
-                                               else max 2 (bitWidth (maximum ids))
+                                 abbrevWidth = fromIntegral $ if null ids
+                                                              then 2
+                                                              else max 2 (bitWidth (maximum ids))
                              in Block id abbrevWidth (map denormalize bs)
 denormalize (NRec c vs) = UnabbrevRecord (fromIntegral c) vs
 
