@@ -1,7 +1,3 @@
--- This file has been generated from package.yaml by hpack version 0.14.1.
---
--- see: https://github.com/sol/hpack
-
 name:                data-bitcode
 version:             0.1.0.0
 synopsis:            bitcode reader and writer
@@ -35,18 +31,34 @@ library
       Data.BitCode.Reader.FromBits
       Data.BitCode.Reader.Monad
       Data.BitCode.Writer
-      Data.BitCode.Writer.Combinators
       Data.BitCode.Writer.Monad
       Data.BitCode.Writer.ToBits
   build-depends:
-      base >= 4.7 && < 5
-    , pretty >= 1.1
-    , bytestring >= 0.10
-    , binary >= 0.8
-    , containers >= 0.5
+      base >= 4.10 && <4.11
+    , pretty
+    , bytestring
+    , binary
+    , containers
     , base16-bytestring
     , transformers
   default-language: Haskell2010
+
+test-suite spec
+  main-is:           Tasty.hs
+  hs-source-dirs:    test
+  other-modules:     BitcodeSpec
+  ghc-options:       -Wall -threaded
+  type:              exitcode-stdio-1.0
+  build-depends:       base
+                     , tasty
+                     , tasty-discover
+                     , tasty-hspec
+                     , process
+                     , filepath
+                     , data-bitcode
+                     -- , data-bitcode-llvm
+                    -- , data-bitcode-llvm
+  default-language:  Haskell2010
 
 benchmark writer
   type: exitcode-stdio-1.0
@@ -55,7 +67,7 @@ benchmark writer
       bench/src
   ghc-options: -main-is Bench
   build-depends:
-      base >= 4.7 && < 5
+      base >= 4.10 && < 5
     , pretty >= 1.1
     , bytestring >= 0.10
     , binary >= 0.8
@@ -65,4 +77,22 @@ benchmark writer
     , data-bitcode
   other-modules:
       Bench
+  default-language: Haskell2010
+
+benchmark bitcode
+  type: exitcode-stdio-1.0
+  main-is: Bench.hs
+  hs-source-dirs:
+      bench/src
+  ghc-options: -main-is Bench
+  build-depends:
+      base >= 4.10 && < 5
+    , pretty >= 1.1
+    , bytestring >= 0.10
+    , binary >= 0.8
+    , containers >= 0.5
+    , base16-bytestring
+    , criterion
+    , data-bitcode
+  other-modules:
   default-language: Haskell2010
