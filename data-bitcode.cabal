@@ -39,7 +39,6 @@ library
     , bytestring
     , binary
     , containers
-    , base16-bytestring
     , transformers
   default-language: Haskell2010
 
@@ -72,7 +71,6 @@ benchmark writer
     , bytestring >= 0.10
     , binary >= 0.8
     , containers >= 0.5
-    , base16-bytestring
     , criterion
     , data-bitcode
   other-modules:
@@ -91,7 +89,6 @@ benchmark bitcode
     , bytestring >= 0.10
     , binary >= 0.8
     , containers >= 0.5
-    , base16-bytestring
     , criterion
     , data-bitcode
   other-modules:

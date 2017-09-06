@@ -138,18 +138,4 @@ toBytes = map toFiniteBits . partition 8
   where toFiniteBits :: (FiniteBits a) => Bits -> a
         toFiniteBits = foldl setBit zeroBits . map fst . filter ((== True) . snd) . zip [0..]
 
--- * Pretty Print
-ppBitCode :: BitCodeReader PP.Doc
-ppBitCode = BitCode $ \b -> PairS (pure $ PP.vcat [ PP.text "* Bitcode"
-                            , PP.text "words =" PP.<+> PP.int (_words b)
-                            , PP.text "bits =" PP.<+> PP.int (_bits b)
-                            , PP.text "body =" PP.<+> ppBitsAndBytes (take (32 * 20) $ _body b)
-                            ]) b
-  where toBitString :: Bits -> String
-        toBitString = map f
-          where f True = '1'
-                f False = '0'
-        toHexString :: [Word8] -> String
-        toHexString = unpack . encode . pack
-        ppBitsAndBytes :: Bits -> PP.Doc
-        ppBitsAndBytes = PP.vcat . map (\bs -> PP.text (toBitString bs) PP.<+> PP.text (toHexString . toBytes $ bs)) . partition 32
+
