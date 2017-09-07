@@ -4,7 +4,6 @@ module Data.BitCode.Reader.Monad
   , evalBitCodeReader
   , read, ask
   , readBits
-  , ppBitCode
   , fromByte
   , FromBits(..)
   , tellGlobalAbbrev, askGlobalAbbrevs
@@ -24,7 +23,6 @@ import Data.Maybe (fromMaybe)
 import qualified Text.PrettyPrint as PP
 import Data.ByteString (pack)
 import Data.ByteString.Char8 (unpack)
-import Data.ByteString.Base16 (encode)
 
 import Control.Monad (MonadPlus(..))
 import Control.Applicative (Alternative(..))
