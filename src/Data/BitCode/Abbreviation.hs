@@ -8,13 +8,20 @@ where
 
 import Data.BitCode
 import Data.Maybe (fromMaybe)
+import Data.Semigroup
 
 newtype AbbrevMap = AbbrevMap [(Code, BitCode)] deriving Show
 newtype GlobalAbbrevMap = GlobalAbbrevMap [(BlockId, AbbrevMap)] deriving Show
 
+instance Semigroup AbbrevMap where
+  (AbbrevMap m) <> (AbbrevMap n) = AbbrevMap (m ++ n)
+
 instance Monoid AbbrevMap where
   mempty = AbbrevMap []
   (AbbrevMap m) `mappend` (AbbrevMap n) = AbbrevMap (m ++ n)
+
+instance Semigroup GlobalAbbrevMap where
+  (GlobalAbbrevMap m) <> (GlobalAbbrevMap n) = GlobalAbbrevMap (m ++ n)
 
 instance Monoid GlobalAbbrevMap where
   mempty = GlobalAbbrevMap []

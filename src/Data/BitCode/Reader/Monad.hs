@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, CPP #-}
 module Data.BitCode.Reader.Monad
   ( BitCodeReader
   , evalBitCodeReader
@@ -11,6 +11,7 @@ module Data.BitCode.Reader.Monad
   where
 
 import Prelude hiding (read, readFile)
+import Data.Semigroup
 -- Utility
 import Data.Bits (FiniteBits, setBit, zeroBits)
 -- reading from file
@@ -43,9 +44,14 @@ data BitC = BitC { _words :: !Int
                  , _gabbrevs :: !GlobalAbbrevMap
                  } deriving (Show)
 
+instance Semigroup BitC where
+  (BitC w l bs g) <> (BitC w' l' bs' g') = BitC (w+w' + ((l+l') `div` 32)) ((l+l') `mod` 32) (bs <> bs') (g <> g')
+
 instance Monoid BitC where
   mempty = BitC 0 0 mempty mempty
-  (BitC w l bs g) `mappend` (BitC w' l' bs' g') = BitC (w+w' + ((l+l') `div` 32)) ((l+l') `mod` 32) (bs `mappend` bs') (g `mappend` g')
+#if !(MIN_VERSION_base(4,9,0))
+  mappend = (<>)
+#endif
 
 data PairS a = PairS { value :: !(Either String a) -- ^ Result
                      , bits :: !BitC               -- ^ bitCodeInfo left

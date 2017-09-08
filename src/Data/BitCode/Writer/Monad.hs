@@ -32,7 +32,8 @@ import qualified Data.List as L
 import qualified Data.ByteString as B
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import Data.Monoid ((<>))
+-- import Data.Monoid ((<>))
+import Data.Semigroup (Semigroup, (<>))
 import Control.Monad.Fix
 
 import GHC.Stack (HasCallStack)
@@ -109,7 +110,40 @@ data Streams f a = Streams
 deriving instance Eq (f Word8) => Eq (Streams f a)
 deriving instance Ord (f Word8) => Ord (Streams f a)
 
-instance ( Monoid (f Word8)
+instance ( Semigroup (f Word8)
+         , Foldable f
+         , Traversable f
+         , Applicative f) => Semigroup (Stream f a) where
+  lhs <> (S _ _ 0) = lhs
+  (S _ _ 0) <> rhs = rhs
+  (S w b p) <> (S w' b' p') =
+    let r =
+          case b of
+    -- there are no bits in the buffer. We can simply
+    -- concatinate lhs and rhs
+            Buff 0 _ -> S (w <> w') b' (p+p')
+            -- there are already @n@ bites in the buffer. We will
+            -- need to shift all the bits in the RHS left by 8-n.
+            Buff n c | null w' -> case addBuff b b' of
+                                      (Just w'', b'') -> S (w <> pure w'') b'' (p+p')
+                                      (Nothing,  b'') -> S w b'' (p+p')
+                     | otherwise -> let (l, w'') = L.mapAccumL (go' n) c w'
+                                    in case addBuff (Buff n l) b' of
+                                        (Just w''', b'') -> S (w <> w'' <> pure w''') b'' (p + p')
+                                        (Nothing,   b'') -> S (w <> w'') b'' (p + p')
+              where go' :: Int    -- ^ shift
+                        -> Word8  -- ^ buff
+                        -> Word8  -- ^ input
+                        -> ( Word8   -- ^ new buff
+                           , Word8 ) -- ^ output
+                    go' !n !b !w = (shift w (n-8), b .|. shift w n)
+    in r
+
+--  {-# SPECIALIZE instance Monoid (Stream Seq a) #-}
+--   {-# SPECIALIZE instance Monoid (Stream [] a) #-}
+
+instance ( Semigroup (f Word8)
+         , Monoid (f Word8)
          , Foldable f
          , Traversable f
          , Applicative f) => Monoid (Stream f a) where
@@ -139,16 +173,20 @@ instance ( Monoid (f Word8)
                     go' !n !b !w = (shift w (n-8), b .|. shift w n)
     in r
 
---  {-# SPECIALIZE instance Monoid (Stream Seq a) #-}
---   {-# SPECIALIZE instance Monoid (Stream [] a) #-}
+
+
+instance Semigroup (Streams f a) where
+  lhs <> (Streams _ 0) = lhs
+  (Streams _ 0) <> rhs = rhs
+  (Streams ss1 p1) <> (Streams ss2 p2) = Streams (ss1 <> ss2) (p1 + p2)
+--  {-# SPECIALIZE instance Monoid (Streams Seq a) #-}
+--  {-# SPECIALIZE instance Monoid (Streams [] a) #-}
 
 instance Monoid (Streams f a) where
-  mempty = Streams mempty 0
   lhs `mappend` (Streams _ 0) = lhs
   (Streams _ 0) `mappend` rhs = rhs
   (Streams ss1 p1) `mappend` (Streams ss2 p2) = Streams (ss1 <> ss2) (p1 + p2)
---  {-# SPECIALIZE instance Monoid (Streams Seq a) #-}
---  {-# SPECIALIZE instance Monoid (Streams [] a) #-}
+  mempty = Streams mempty 0
 
 -- mappend is not cheap here.
 type ListStream = Stream [] Word8
