@@ -59,22 +59,19 @@ test-suite spec
                     -- , data-bitcode-llvm
   default-language:  Haskell2010
 
+
 benchmark writer
   type: exitcode-stdio-1.0
-  main-is: Bench.hs
+  main-is: Prof.hs
   hs-source-dirs:
-      bench/src
-  ghc-options: -main-is Bench
+      prof/src
+  ghc-options: -main-is Prof
   build-depends:
       base >= 4.10 && < 5
-    , pretty >= 1.1
-    , bytestring >= 0.10
-    , binary >= 0.8
-    , containers >= 0.5
-    , criterion
+    , binary              
     , data-bitcode
   other-modules:
-      Bench
+      Prof
   default-language: Haskell2010
 
 benchmark bitcode

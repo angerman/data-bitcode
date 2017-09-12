@@ -170,6 +170,9 @@ lookupRecord e bs = lookup (fromEnum e) [(c,v) | NRec c v <- bs]
 class ToVal a where
   toVal :: a -> [Val]
 
+instance ToVal Word64 where
+  toVal = pure
+
 instance {-# OVERLAPPABLE #-} (Enum a) => ToVal a where
   toVal = pure . fromIntegral . fromEnum
 
