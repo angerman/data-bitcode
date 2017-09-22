@@ -34,7 +34,7 @@ library
       Data.BitCode.Writer.Monad
       Data.BitCode.Writer.ToBits
   build-depends:
-      base >= 4.10 && <4.11
+      base >= 4.10 && <5
     , pretty
     , bytestring
     , binary
