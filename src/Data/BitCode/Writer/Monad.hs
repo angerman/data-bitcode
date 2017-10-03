@@ -29,7 +29,9 @@ import Data.Foldable
 import Control.Monad.Trans.State.Strict
 
 import qualified Data.List as L
-import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as B
+import qualified Data.Binary.Put as Bin (runPut)
+import qualified Data.Binary as Bin (put)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 -- import Data.Monoid ((<>))
@@ -43,9 +45,21 @@ import Debug.Trace
 -- | The position in the stream.
 type Position = Int
 
+bSize :: Int
+-- ensure the order is correct
+bToOrder :: BType -> BType
+
+-- Word64
+-- type BType = Word64
+-- bSize = 64
+-- bToOrder = byteSwap64
+
+type BType = Word8
+bSize = 8
+bToOrder = id -- Word8
 -- | A @Word8@ buffer, tracking the number of bits.
 -- I don't think those Unpacks are necessary, -funbox-small-strict-fields is on by default
-data Buff = Buff !Int !Word8 deriving (Eq, Ord)
+data Buff = Buff !Int !BType deriving (Eq, Ord)
 
 mask :: (FiniteBits a, Num a) => Int -> a -> a
 mask n w = m .&. w
@@ -80,37 +94,37 @@ nullBuff = Buff 0 0
 -- In the spill case B = (5, 0b00010101) and C = (4, 0b00001111) we expect to get
 -- (Just 0b11110101, (1, b000000001))
 --
-addBuff :: Buff -> Buff -> (Maybe Word8, Buff)
-addBuff (Buff n w ) (Buff n' w' ) | n+n' < 8  = (Nothing
-                                                  , Buff (n+n') (w .|. (shift w' n)))
+addBuff :: Buff -> Buff -> (Maybe BType, Buff)
+addBuff (Buff n w ) (Buff n' w' ) | n+n' < bSize  = (Nothing
+                                                    , Buff (n+n') (w .|. (shift w' n)))
                                   | otherwise = (Just (w .|. (shift w' n))
-                                                  , Buff ((n+n') `mod` 8) (shift w' (n-8)))
+                                                  , Buff ((n+n') `mod` bSize) (shift w' (n-bSize)))
 
 
 -- | Smart constructor for @Buff@. Ensures that
 -- the stored byte is masked properly.
-mkBuff :: Int -> Word8 -> Buff
+mkBuff :: Int -> BType -> Buff
 mkBuff n w = Buff n (mask n w)
 
 -- | A stream is a number of Words, a buffer and a position (length of the stream) marker.
 data Stream f a = S
-  { _words  :: !(f Word8)
+  { _words  :: !(f BType)
   , _buffer :: !Buff
   , _len    :: !Position
   }
 
-deriving instance Eq (f Word8) => Eq (Stream f a)
-deriving instance Ord (f Word8) => Ord (Stream f a)
+deriving instance Eq (f BType) => Eq (Stream f a)
+deriving instance Ord (f BType) => Ord (Stream f a)
 
 data Streams f a = Streams
   { _substreams :: !(Seq (Stream f a))
   , _total_len :: !Position
   }
 
-deriving instance Eq (f Word8) => Eq (Streams f a)
-deriving instance Ord (f Word8) => Ord (Streams f a)
+deriving instance Eq (f BType) => Eq (Streams f a)
+deriving instance Ord (f BType) => Ord (Streams f a)
 
-instance ( Semigroup (f Word8)
+instance ( Semigroup (f BType)
          , Foldable f
          , Traversable f
          , Applicative f) => Semigroup (Stream f a) where
@@ -132,18 +146,18 @@ instance ( Semigroup (f Word8)
                                         (Just w''', b'') -> S (w <> w'' <> pure w''') b'' (p + p')
                                         (Nothing,   b'') -> S (w <> w'') b'' (p + p')
               where go' :: Int    -- ^ shift
-                        -> Word8  -- ^ buff
-                        -> Word8  -- ^ input
-                        -> ( Word8   -- ^ new buff
-                           , Word8 ) -- ^ output
-                    go' !n !b !w = (shift w (n-8), b .|. shift w n)
+                        -> BType  -- ^ buff
+                        -> BType  -- ^ input
+                        -> ( BType   -- ^ new buff
+                           , BType ) -- ^ output
+                    go' !n !b !w = (shift w (n-bSize), b .|. shift w n)
     in r
 
   {-# SPECIALIZE instance Semigroup (Stream Seq a) #-}
   {-# SPECIALIZE instance Semigroup (Stream [] a) #-}
 
-instance ( Semigroup (f Word8)
-         , Monoid (f Word8)
+instance ( Semigroup (f BType)
+         , Monoid (f BType)
          , Foldable f
          , Traversable f
          , Applicative f) => Monoid (Stream f a) where
@@ -166,11 +180,11 @@ instance ( Semigroup (f Word8)
                                         (Just w''', b'') -> S (w <> w'' <> pure w''') b'' (p + p')
                                         (Nothing,   b'') -> S (w <> w'') b'' (p + p')
               where go' :: Int    -- ^ shift
-                        -> Word8  -- ^ buff
-                        -> Word8  -- ^ input
-                        -> ( Word8   -- ^ new buff
-                           , Word8 ) -- ^ output
-                    go' !n !b !w = (shift w (n-8), b .|. shift w n)
+                        -> BType  -- ^ buff
+                        -> BType  -- ^ input
+                        -> ( BType   -- ^ new buff
+                           , BType ) -- ^ output
+                    go' !n !b !w = (shift w (n-bSize), b .|. shift w n)
     in r
 
   {-# SPECIALIZE instance Monoid (Stream Seq a) #-}
@@ -192,8 +206,8 @@ instance Monoid (Streams f a) where
   {-# SPECIALIZE instance Monoid (Streams [] a) #-}
 
 -- mappend is not cheap here.
-type ListStream = Stream [] Word8
-type SeqStreams = Streams Seq  Word8
+type ListStream = Stream [] BType
+type SeqStreams = Streams Seq  BType
 
 toListStream :: Foldable f => Stream f a -> Stream [] a
 toListStream (S w b p) = S (toList w) b p
@@ -221,21 +235,21 @@ value (_,_,v) = v
 
 runBitstream :: Position -> Bitstream a -> (ListStream, Position, a)
 runBitstream p (Bitstream f) = case runState f (BitstreamState mempty 0) of (a, BitstreamState ss p) -> (toListStream . runStreams $ ss, p, a)
-execBitstream :: Position -> Bitstream a -> [Word8]
+execBitstream :: Position -> Bitstream a -> [BType]
 execBitstream p a = _words . stream . runBitstream p $ a >> alignWord8
 evalBitstream :: Position -> Bitstream a -> a
 evalBitstream p = value . runBitstream p
 
-streams :: Foldable f => f Word8 -> Buff -> Position -> SeqStreams
+streams :: Foldable f => f BType -> Buff -> Position -> SeqStreams
 streams w b p
   | p == 0 = mempty
   | otherwise = Streams (pure $ S (Seq.fromList . toList $ w) b p) p
 
-{-# SPECIALIZE streams :: [Word8] -> Buff -> Position -> SeqStreams #-}
-bitstream :: Foldable f => f Word8 -> Buff -> Int -> Bitstream ()
+{-# SPECIALIZE streams :: [BType] -> Buff -> Position -> SeqStreams #-}
+bitstream :: Foldable f => f BType -> Buff -> Int -> Bitstream ()
 bitstream w b p = Bitstream $ modify' $ \(BitstreamState ss p') -> BitstreamState (ss <> streams w b p) (p + p')
 
-{-# SPECIALIZE bitstream :: [Word8] -> Buff -> Int -> Bitstream () #-}
+{-# SPECIALIZE bitstream :: [BType] -> Buff -> Int -> Bitstream () #-}
 -- Monadic Bitstream API
 
 withOffset :: Int -> Bitstream a -> Bitstream a
@@ -258,7 +272,7 @@ emitBit :: Bool -> Bitstream ()
 emitBit True  = bitstream [] (Buff 1 0b00000001) 1
 emitBit False = bitstream [] (Buff 1 0b00000000) 1
 
-emitBits :: Int -> Word8 -> Bitstream ()
+emitBits :: Int -> BType -> Bitstream ()
 emitBits 0 _ = pure ()
 emitBits n b  | n < 8 = do
                  -- traceM $ "emitting " ++ show n ++ " bits; value = " ++ show b
@@ -268,7 +282,7 @@ emitBits n b  | n < 8 = do
               | otherwise = error $ "cannot emit " ++ show n ++ " bits from Word8."
 
 emitWord8 :: Word8 -> Bitstream ()
-emitWord8 w = bitstream [w] nullBuff 8
+emitWord8 w = bitstream [fromIntegral w] nullBuff 8
 
 emitWord32R :: Word32 -> Bitstream ()
 emitWord32R w = bitstream [fromIntegral (shift w (-24))
@@ -317,7 +331,7 @@ emitFixed n w | n < 8  = bitstream []     (mkBuff  n'     (off  0 w)) n'
                                     nullBuff
                                     64
               | otherwise = error $ "invalid number of bits. Cannot emit " ++ show n ++ " bits from Word64."
-    where off :: Int -> Word64 -> Word8
+    where off :: Int -> Word64 -> BType
           off n w = fromIntegral (shift w (-n))
           n' = fromIntegral n
 
@@ -357,8 +371,8 @@ alignWord32 = flip mod 32 <$> loc >>= \case
 writeFile
   :: HasCallStack
   => FilePath -> Bitstream a -> IO ()
-writeFile f = B.writeFile f . B.pack . execBitstream 0
-
+writeFile f = B.writeFile f . encode' . execBitstream 0
+  where encode' = Bin.runPut . mapM_ (Bin.put . bToOrder)
 -- * BitCode Header
 -- | put the BitCodeHeader, on darwin a special wrapper is
 -- apparently only required, to make it compatible with
@@ -404,8 +418,8 @@ withHeader isDarwin body = mdo
 
 -- Show instances. These make parsing debug output much easier.
 
-showWord8 :: Word8 -> String
-showWord8 w = '0':'b':(map f $ [testBit w i | i <- [0..7]])
+showWord8 :: BType -> String
+showWord8 w = '0':'b':(map f $ [testBit w i | i <- [0..bSize-1]])
   where f True  = '1'
         f False = '0'
 
