@@ -259,20 +259,20 @@ withOffset n x = Bitstream $ do
   put $ BitstreamState ss' (pos + pos')
   return r
 
-loc :: Bitstream Position
+loc :: HasCallStack => Bitstream Position
 loc = Bitstream $ gets bssPosition
 
-locBytes :: Bitstream Word32
+locBytes :: HasCallStack => Bitstream Word32
 locBytes = Bitstream $ gets $ fromIntegral . (`div` 8) . bssPosition
 
-locWords :: Bitstream Word32
+locWords :: HasCallStack => Bitstream Word32
 locWords = Bitstream $ gets $ fromIntegral . (`div` 32) . bssPosition
 
-emitBit :: Bool -> Bitstream ()
-emitBit True  = bitstream [] (Buff 1 0b00000001) 1
-emitBit False = bitstream [] (Buff 1 0b00000000) 1
+emitBit :: HasCallStack => Bool -> Bitstream ()
+emitBit True  = bitstream [] (Buff 1 (setBit zeroBits bSize)) 1
+emitBit False = bitstream [] (Buff 1 0) 1
 
-emitBits :: Int -> BType -> Bitstream ()
+emitBits :: HasCallStack => Int -> BType -> Bitstream ()
 emitBits 0 _ = pure ()
 emitBits n b  | n < 8 = do
                  -- traceM $ "emitting " ++ show n ++ " bits; value = " ++ show b
@@ -345,7 +345,7 @@ emitVBR n w = do
        then emitBit False
        else emitBit True >> emitVBR n tail
 
-emitChar6 :: Char -> Bitstream ()
+emitChar6 :: HasCallStack => Char -> Bitstream ()
 emitChar6 '_' = emitBits 6 63
 emitChar6 '.' = emitBits 6 62
 emitChar6 c | 'a' <= c && c <= 'z' = emitBits 6 . fromIntegral $ (fromEnum c - fromEnum 'a')
@@ -353,14 +353,14 @@ emitChar6 c | 'a' <= c && c <= 'z' = emitBits 6 . fromIntegral $ (fromEnum c - f
             | '0' <= c && c <= '9' = emitBits 6 . fromIntegral $ (fromEnum c - fromEnum '0') + 52
             | otherwise = fail $ "char '" ++ c:"' not in [a-zA-Z0-9._]"
 
-alignWord8 :: Bitstream ()
+alignWord8 :: HasCallStack => Bitstream ()
 alignWord8 = do
   bits <- (`mod` 8) <$> loc
   case bits of
     0 -> pure ()
     x -> emitBits (8 - x) 0
 
-alignWord32 :: Bitstream ()
+alignWord32 :: HasCallStack => Bitstream ()
 alignWord32 = flip mod 32 <$> loc >>= \case
   0 -> pure ()
   x | 32 - x < 8  -> emitBits (32 - x) 0
