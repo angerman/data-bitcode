@@ -34,7 +34,7 @@ library
       Data.BitCode.Writer.Monad
       Data.BitCode.Writer.ToBits
   build-depends:
-      base
+      base >= 4.10 && <5
     , pretty
     , bytestring
     , binary
@@ -48,7 +48,7 @@ test-suite spec
   other-modules:     BitcodeSpec
   ghc-options:       -Wall -threaded
   type:              exitcode-stdio-1.0
-  build-depends:       base
+  build-depends:       base >= 4.10 && <5
                      , tasty
                      , tasty-discover
                      , tasty-hspec
