@@ -34,7 +34,7 @@ library
       Data.BitCode.Writer.Monad
       Data.BitCode.Writer.ToBits
   build-depends:
-      base >= 4.10 && <5
+      base
     , pretty
     , bytestring
     , binary
@@ -52,6 +52,7 @@ test-suite spec
                      , tasty
                      , tasty-discover
                      , tasty-hspec
+                     , tasty-quickcheck
                      , process
                      , filepath
                      , data-bitcode
@@ -71,7 +72,6 @@ benchmark writer
     , binary              
     , data-bitcode
   other-modules:
-      Prof
   default-language: Haskell2010
 
 benchmark bitcode

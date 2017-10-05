@@ -6,6 +6,7 @@ module BitcodeSpec where
 import Prelude hiding (words)
 
 import Test.Tasty.Hspec
+import Test.Tasty.QuickCheck
 
 import Data.BitCode
 import Data.BitCode.Writer
@@ -13,7 +14,7 @@ import Data.BitCode.Writer.Monad
 
 import Data.Bits (zeroBits, setBit)
 import Data.String (IsString(..))
-import Data.Word (Word8)
+import Data.Word (Word8, Word64)
 
 -- import Data.BitCode.LLVM
 -- import Data.BitCode.LLVM.ToBitCode (ToNBitCode(..))
@@ -29,12 +30,12 @@ isBinary :: String -> Bool
 isBinary = all (flip elem ['0','1'])
 
 instance IsString Buff where
-  fromString s | length s > 8       = error $ "cannot create buffer from " ++ s ++ "; more than eight bits"
+  fromString s | length s > bSize   = error $ "cannot create buffer from " ++ s ++ "; more than " ++ show bSize ++ " bits"
                | not . isBinary $ s = error $ "cannot create buffer from " ++ s ++ "; elements must be 0 or 1"
                | otherwise          = mkBuff (length s) (foldl f zeroBits (indexed s))
     where indexed :: [a] -> [(Int, a)]
           indexed = zip [0..]
-          f :: Word8 -> (Int, Char) -> Word8
+          f :: BType -> (Int, Char) -> BType
           f w (n, '1') = setBit w n
           f w _        = w
 
@@ -52,7 +53,7 @@ instance {-# OVERLAPS #-} IsString [Word8] where
           fromString' s | (length s `mod` 8) /= 0     = error $ "cannot create [Word8] from " ++ s ++ "; must be multiple of 8 bits"
                         | not . isBinary $ s = error $ "cannot create [Word8] from " ++ s ++ "; elements must be 0 or 1"
                         | otherwise          = go s
-        
+
           go :: String -> [Word8]
           go [] = []
           go (b0:b1:b2:b3:b4:b5:b6:b7:rest) = let word = bit 0 b0 . bit 1 b1 . bit 2 b2 . bit 3 b3
@@ -60,14 +61,36 @@ instance {-# OVERLAPS #-} IsString [Word8] where
                                               in word : go rest
           go s = error $ "cannot creates [Word8] from " ++ s ++ "; must be multiple of 8 chars."
 
+instance {-# OVERLAPS #-} IsString [BType] where
+  fromString = fromString' . filter (/= ' ')
+    where fromString' :: String -> [BType]
+          fromString' s | (length s `mod` bSize) /= 0 = error $ "cannot create [BType] from " ++ s ++ "; must be multiple of " ++ show bSize ++ " bits"
+                        | not . isBinary $ s = error $ "cannot create [BType] from " ++ s ++ "; elements must be 0 or 1"
+                        | otherwise          = go s
+          go :: String -> [BType]
+          go [] = []
+          go xs = let word = foldl f zeroBits (indexed h)
+                  in word : go t
+            where (h, t) = splitAt bSize xs
+                  f w (n, '1') = setBit w n
+                  f w _        = w
+                  indexed :: [a] -> [(Int,a)]
+                  indexed = zip [0..]
+
 instance IsString (Stream [] a) where
   fromString = fromString' . filter (/= ' ')
     where fromString' :: String -> Stream [] a
           fromString' s | not . isBinary $ s = error $ "cannot create List Stream from " ++ s ++ "; elements must be 0 or 1"
                         | otherwise          = let (ws, buff) = go s in S ws buff (length s)
-          go :: String -> ([Word8], Buff)
-          go s = let l = 8 * (length s `div` 8) in
-                   (words $ take l s, b $ drop l s)
+          go :: String -> ([BType], Buff)
+          go s = let l = bSize * (length s `div` bSize) in
+                   (fromString $ take l s, b $ drop l s)
+
+instance IsString (Maybe BType, Buff) where
+  fromString s = case fromString s of
+                   (S [] b _)    -> (Nothing, b)
+                   (S (x:_) b _) -> (Just x, b)
+
 
 -- type helper.
 b :: String -> Buff
@@ -82,6 +105,19 @@ words = fromString
 ls :: String -> Stream [] Word8
 ls = fromString
 
+ob :: String -> (Maybe BType, Buff)
+ob = fromString
+
+-- * QuickCheck
+
+prop_emitVBR4 :: Word64 -> Bool
+prop_emitVBR4 w = bitstreamBS (emitVBR_slow 4 w) == bitstreamBS (emitVBR_fast 4 w)
+
+prop_emitVBR6 :: Word64 -> Bool
+prop_emitVBR6 w = bitstreamBS (emitVBR_slow 6 w) == bitstreamBS (emitVBR_fast 6 w)
+
+prop_emitVBR8 :: Word64 -> Bool
+prop_emitVBR8 w = bitstreamBS (emitVBR_slow 8 w) == bitstreamBS (emitVBR_fast 8 w)
 
 -- * Specifications
 
@@ -104,9 +140,11 @@ spec_helper = do
 
   describe "List Stream" $ do
     it "has an IsString isntance" $ do
-      ls "" `shouldBe` (S [] nullBuff 0) 
+      ls "" `shouldBe` (S [] nullBuff 0)
       ls "1" `shouldBe` (S [] (mkBuff 1 0b00000001) 1)
-      ls "10101010 101" `shouldBe` (S [0b01010101] (mkBuff 3 0b00000101) 11)
+      -- this test hard codes a buffer of size 8. And as such fails for any other
+      -- buffer size
+--      ls "10101010 101" `shouldBe` (S [0b01010101] (mkBuff 3 0b00000101) 11)
 
 spec_buff :: Spec
 spec_buff = do
@@ -114,10 +152,10 @@ spec_buff = do
     it "should add" $ do
       nullBuff `addBuff` nullBuff
         `shouldBe` (Nothing, nullBuff)
-      nullBuff `addBuff` (mkBuff 4 0b00000101)
-        `shouldBe` (Nothing, mkBuff 4 0b00000101)
-      (mkBuff 1 0b00000001) `addBuff` (mkBuff 1 0b00000001)
-        `shouldBe` (Nothing, mkBuff 2 0b00000011)
+      nullBuff `addBuff` (b "0101")
+        `shouldBe` (ob "0101")
+      b "1" `addBuff` (b "1")
+        `shouldBe` (ob "11")
       (mkBuff 4 0b00000101) `addBuff` (mkBuff 4 0b00000101)
         `shouldBe` (Just 0b01010101, nullBuff)
       (mkBuff 6 0b00010101) `addBuff` (mkBuff 4 0b00001010)
@@ -130,16 +168,16 @@ spec_stream = do
   describe "Stream" $ do
     it "should be a monoid" $ do
       (S []  nullBuff 0 `mappend` S []  (mkBuff 4 0b10100000) 4)
-        `shouldBe` (S []    (mkBuff 4 0b10100000) 4)  
+        `shouldBe` (S []    (mkBuff 4 0b10100000) 4)
       (S [1] nullBuff 8 `mappend` S [2] (mkBuff 4 0b10100000) 12)
         `shouldBe` (S [1,2] (mkBuff 4 0b10100000) 20)
       (S []  (mkBuff 4 0b00001010) 4 `mappend` S [] (mkBuff 4 0b00000101) 4)
-        `shouldBe` (S [0b01011010] nullBuff 8)
+        `shouldBe` (ls "01011010")
 
       --   101 + 10101010 101
       -- = 10110101 010101
-      (S [] (mkBuff 3 0b00000101) 3) `mappend` (S [0b01010101] (mkBuff 3 0b00000101) 11)
-        `shouldBe` (S [0b10101101] (mkBuff 6 0b00101010) 14)
+      ls "101" `mappend` (ls "10101010 101")
+        `shouldBe` (ls "10110101 010101")
 
       ls "101" `mappend` (ls "10101010 101") `shouldBe` (ls "10110101 010101")
 
@@ -148,7 +186,7 @@ spec_stream = do
 
       ls "01010101 101" `mappend` (ls "10101010 11001100 000111")
         `shouldBe` (ls "01010101 10110101 01011001 10000011 1")
-      
+
       (S [0b10101010] (mkBuff 3 0b00000101) 11) `mappend` (S [0b01010101, 0b00110011] (mkBuff 6 0b00111000) 22)
         `shouldBe` (S [0b10101010,0b10101101,0b10011010,0b11000001] (mkBuff 1 0b00000001) 33)
 
@@ -163,13 +201,13 @@ spec_bitstream = do
       evalBitstream 0 (emitBit True >> alignWord8 >> loc) `shouldBe` 8
 
     it "should produce word aligned results" $ do
-      execBitstream 0 (pure ()) `shouldBe` []
-      execBitstream 0 (emitBit False) `shouldBe` [0b00000000]
-      execBitstream 0 (emitBit True) `shouldBe`  [0b00000001]
-      execBitstream 0 (emitBit True >> emitBit False >> emitBit True) `shouldBe` [0b00000101]
+      bitstreamBytes 0 (pure ()) `shouldBe` []
+      bitstreamBytes 0 (emitBit False) `shouldBe` [0b00000000]
+      bitstreamBytes 0 (emitBit True) `shouldBe`  [0b00000001]
+      bitstreamBytes 0 (emitBit True >> emitBit False >> emitBit True) `shouldBe` [0b00000101]
 
     it "should produce the proper darwin header" $ do
-      execBitstream 0 (withHeader True (pure ())) `shouldBe`
+      bitstreamBytes 0 (withHeader True (pure ())) `shouldBe`
         [ 0xde, 0xc0, 0x17, 0x0b -- 0x0b17c0de header
         , 0x00, 0x00, 0x00, 0x00 -- version: 0
         , 0x14, 0x00, 0x00, 0x00 -- offset: 20
@@ -178,31 +216,31 @@ spec_bitstream = do
         , 0x42, 0x43, 0xc0, 0xde -- LLVM header. "BC" 0x0de
         ]
     it "should be able to emit a fixed number of bits" $ do
-      execBitstream 0 (emitFixed 6 0) `shouldBe` [0x00]
-      execBitstream 0 (emitFixed 6 1) `shouldBe` (words "10000000")
-      execBitstream 0 (emitFixed 6 2) `shouldBe` (words "01000000")
-      execBitstream 0 (emitFixed 6 1 >> emitFixed 6 2)
+      bitstreamBytes 0 (emitFixed 6 0) `shouldBe` [0x00]
+      bitstreamBytes 0 (emitFixed 6 1) `shouldBe` (words "10000000")
+      bitstreamBytes 0 (emitFixed 6 2) `shouldBe` (words "01000000")
+      bitstreamBytes 0 (emitFixed 6 1 >> emitFixed 6 2)
         `shouldBe` (words "100000 010000 0000")
-      
+
     it "should be able to emit a variable number of bits" $ do
-      execBitstream 0 (emitVBR 3 1) `shouldBe` (words "10000000")
-      execBitstream 0 (emitVBR 3 2) `shouldBe` (words "01000000")
-      execBitstream 0 (emitVBR 3 3) `shouldBe` (words "11000000")
-      execBitstream 0 (emitVBR 3 4) `shouldBe` (words "00110000")
-      execBitstream 0 (emitVBR 3 5) `shouldBe` (words "10110000")
-      execBitstream 0 (emitVBR 3 9) `shouldBe` (words "10101000")
-      
-      execBitstream 0 (emitVBR 4  0) `shouldBe` (words "00000000")
-      execBitstream 0 (emitVBR 4  1) `shouldBe` (words "10000000")
-      execBitstream 0 (emitVBR 4  2) `shouldBe` (words "01000000")
-      execBitstream 0 (emitVBR 4  4) `shouldBe` (words "00100000")
-      execBitstream 0 (emitVBR 4  8) `shouldBe` (words "00011000")
-      execBitstream 0 (emitVBR 4 16) `shouldBe` (words "00010100")
-      execBitstream 0 (emitVBR 4 32) `shouldBe` (words "00010010")
-      execBitstream 0 (emitVBR 4 64) `shouldBe` (words "00010001 10000000")
+      bitstreamBytes 0 (emitVBR 3 1) `shouldBe` (words "10000000")
+      bitstreamBytes 0 (emitVBR 3 2) `shouldBe` (words "01000000")
+      bitstreamBytes 0 (emitVBR 3 3) `shouldBe` (words "11000000")
+      bitstreamBytes 0 (emitVBR 3 4) `shouldBe` (words "00110000")
+      bitstreamBytes 0 (emitVBR 3 5) `shouldBe` (words "10110000")
+      bitstreamBytes 0 (emitVBR 3 9) `shouldBe` (words "10101000")
+
+      bitstreamBytes 0 (emitVBR 4  0) `shouldBe` (words "00000000")
+      bitstreamBytes 0 (emitVBR 4  1) `shouldBe` (words "10000000")
+      bitstreamBytes 0 (emitVBR 4  2) `shouldBe` (words "01000000")
+      bitstreamBytes 0 (emitVBR 4  4) `shouldBe` (words "00100000")
+      bitstreamBytes 0 (emitVBR 4  8) `shouldBe` (words "00011000")
+      bitstreamBytes 0 (emitVBR 4 16) `shouldBe` (words "00010100")
+      bitstreamBytes 0 (emitVBR 4 32) `shouldBe` (words "00010010")
+      bitstreamBytes 0 (emitVBR 4 64) `shouldBe` (words "00010001 10000000")
 
     it "should be able to emit char6 encoded data" $ do
-      execBitstream 0 (mapM emitChar6 ("abcd" :: String))
+      bitstreamBytes 0 (mapM emitChar6 ("abcd" :: String))
         `shouldBe` (words "000000 100000 010000 110000")
 
     it "handle withOffset" $ do
@@ -218,7 +256,7 @@ spec_bitstream = do
               locWords -- should be two now.
             emitWord8 3
             pure ()
-      execBitstream 0 action `shouldBe`
+      bitstreamBytes 0 action `shouldBe`
         [ 0x04, 0x00, 0x00, 0x00  -- four words
         , 0x00, 0x00, 0x00, 0x00  -- word 1
         , 0xff, 0xff, 0xff, 0xff  -- word 2
@@ -227,11 +265,11 @@ spec_bitstream = do
         , 0x03 ]
 
     it "should align to word32" $ do
-      execBitstream 0 (emitFixed 6 1 >> alignWord32)
+      bitstreamBytes 0 (emitFixed 6 1 >> alignWord32)
         `shouldBe` (words "1000 0000 0000 0000 0000 0000 0000 0000")
-      execBitstream 0 (emitFixed 6 1 >> emitFixed 6 1 >> alignWord32)
+      bitstreamBytes 0 (emitFixed 6 1 >> emitFixed 6 1 >> alignWord32)
         `shouldBe` (words "1000 0010 0000 0000 0000 0000 0000 0000")
-      execBitstream 0 (emitWord32 0 >> alignWord32)
+      bitstreamBytes 0 (emitWord32 0 >> alignWord32)
         `shouldBe` [0x00,0x00,0x00,0x00]
 
 spec_bitcode :: Spec
@@ -240,7 +278,7 @@ spec_bitcode = do
     it "should emit a simple empy block" $ do
       -- emit a block with id 1, and no body.
       let action = emitTopLevel [Block 1 3 []]
-          result = execBitstream 0 (action)
+          result = bitstreamBytes 0 (action)
       result `shouldBe`
         (words $ "10 10000000 1100"   -- enter block (1), block id (1), len (3)
               ++                  "00 0000 0000 0000 0000" -- align 32 bits
@@ -251,7 +289,7 @@ spec_bitcode = do
  
     -- it "should serialize an ident block" $ do
     --   let bc = map denormalize $ toBitCode (Ident "LLVM" Current)
-    --       result = execBitstream 0 (emitTopLevel bc)
+    --       result = bitstreamBytes 0 (emitTopLevel bc)
     --   result `shouldBe`
     --     (words $ "10 10110000 0100" -- block: 13, len: 2           2+8+4 = 14
     --           ++                  "00 0000 0000 0000 0000"   --    2+4*4 = 18
@@ -278,7 +316,7 @@ spec_bitcode = do
     --                                                           , mConsts = []
     --                                                           , mTypes = []})
     --       bc' = map denormalize bc
-    --       result = execBitstream 0 (emitTopLevel bc')
+    --       result = bitstreamBytes 0 (emitTopLevel bc')
     --   result `shouldBe`
     --     [ 0x35, 0x08, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00
     --     , 0x07, 0x04, 0x2b, 0xb0, 0x82, 0x2d, 0xb4, 0xc2

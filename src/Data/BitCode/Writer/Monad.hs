@@ -19,6 +19,8 @@ module Data.BitCode.Writer.Monad
   , writeFile, withHeader
   -- ** For testing
   , Stream(..), Buff(..), Bitstream(..), bitstream
+  , streams
+  , BType, bSize, showWord8, mkBitstream, emitLLVMIRHeader, emitDarwinHeader, BitstreamState(..), bitstreamBytes, bToWord8, bToOrder, emitVBR_slow, emitVBR_fast, bitstreamBS
   ) where
 
 import Prelude hiding (last, words, writeFile, tail)
@@ -32,6 +34,9 @@ import qualified Data.List as L
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Binary.Put as Bin (runPut)
 import qualified Data.Binary as Bin (put)
+import Data.Binary (Put)
+import Data.Binary.Put (PutM)
+
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 -- import Data.Monoid ((<>))
@@ -48,15 +53,20 @@ type Position = Int
 bSize :: Int
 -- ensure the order is correct
 bToOrder :: BType -> BType
+bPut :: BType -> Put
 
 -- Word64
--- type BType = Word64
--- bSize = 64
--- bToOrder = byteSwap64
+type BType = Word64
+bSize = 64
+bToOrder = byteSwap64
+bPut = Bin.put . byteSwap64
+bToWord8 w = [fromIntegral $ shift w (-i) | i <- [0,8..56]]
+-- type BType = Word8
+-- bSize = 8
+-- bToOrder = id -- Word8
+-- bPut = Bin.put
+-- bToWord8 = pure
 
-type BType = Word8
-bSize = 8
-bToOrder = id -- Word8
 -- | A @Word8@ buffer, tracking the number of bits.
 -- I don't think those Unpacks are necessary, -funbox-small-strict-fields is on by default
 data Buff = Buff !Int !BType deriving (Eq, Ord)
@@ -128,10 +138,10 @@ instance ( Semigroup (f BType)
          , Foldable f
          , Traversable f
          , Applicative f) => Semigroup (Stream f a) where
-  lhs <> (S _ _ 0) = lhs
-  (S _ _ 0) <> rhs = rhs
-  (S w b p) <> (S w' b' p') =
-    let r =
+  (<>) !lhs  !(S _ _ 0) = lhs
+  (<>) !(S _ _ 0) !rhs = rhs
+  (<>) !(S w b p) !(S w' b' p') =
+    let !r =
           case b of
     -- there are no bits in the buffer. We can simply
     -- concatinate lhs and rhs
@@ -141,7 +151,7 @@ instance ( Semigroup (f BType)
             Buff n c | null w' -> case addBuff b b' of
                                       (Just w'', b'') -> S (w <> pure w'') b'' (p+p')
                                       (Nothing,  b'') -> S w b'' (p+p')
-                     | otherwise -> let (l, w'') = L.mapAccumL (go' n) c w'
+                     | otherwise -> let !(l, w'') = L.mapAccumL (go' n) c w'
                                     in case addBuff (Buff n l) b' of
                                         (Just w''', b'') -> S (w <> w'' <> pure w''') b'' (p + p')
                                         (Nothing,   b'') -> S (w <> w'') b'' (p + p')
@@ -162,38 +172,16 @@ instance ( Semigroup (f BType)
          , Traversable f
          , Applicative f) => Monoid (Stream f a) where
   mempty = S mempty nullBuff 0
-  lhs `mappend` (S _ _ 0) = lhs
-  (S _ _ 0) `mappend` rhs = rhs
-  (S w b p) `mappend` (S w' b' p') =
-    let r =
-          case b of
-    -- there are no bits in the buffer. We can simply
-    -- concatinate lhs and rhs
-            Buff 0 _ -> S (w <> w') b' (p+p')
-            -- there are already @n@ bites in the buffer. We will
-            -- need to shift all the bits in the RHS left by 8-n.
-            Buff n c | null w' -> case addBuff b b' of
-                                      (Just w'', b'') -> S (w <> pure w'') b'' (p+p')
-                                      (Nothing,  b'') -> S w b'' (p+p')
-                     | otherwise -> let (l, w'') = L.mapAccumL (go' n) c w'
-                                    in case addBuff (Buff n l) b' of
-                                        (Just w''', b'') -> S (w <> w'' <> pure w''') b'' (p + p')
-                                        (Nothing,   b'') -> S (w <> w'') b'' (p + p')
-              where go' :: Int    -- ^ shift
-                        -> BType  -- ^ buff
-                        -> BType  -- ^ input
-                        -> ( BType   -- ^ new buff
-                           , BType ) -- ^ output
-                    go' !n !b !w = (shift w (n-bSize), b .|. shift w n)
-    in r
-
+  mappend = (<>)
   {-# SPECIALIZE instance Monoid (Stream Seq a) #-}
   {-# SPECIALIZE instance Monoid (Stream [] a) #-}
 
 instance Semigroup (Streams f a) where
-  lhs <> (Streams _ 0) = lhs
-  (Streams _ 0) <> rhs = rhs
-  (Streams ss1 p1) <> (Streams ss2 p2) = Streams (ss1 <> ss2) (p1 + p2)
+  (<>) !lhs !(Streams _ 0) = lhs
+  (<>) !(Streams _ 0) !rhs = rhs
+  (<>) !(Streams ss1 p1) !(Streams ss2 p2) = let !ss' = ss1 <> ss2
+                                                 !p'  = p1  +  p2
+                                             in Streams ss' p'
 
   {-# SPECIALIZE instance Semigroup (Streams Seq a) #-}
   {-# SPECIALIZE instance Semigroup (Streams [] a) #-}
@@ -207,6 +195,7 @@ instance Monoid (Streams f a) where
 
 -- mappend is not cheap here.
 type ListStream = Stream [] BType
+type SeqStream  = Stream Seq BType
 type SeqStreams = Streams Seq  BType
 
 toListStream :: Foldable f => Stream f a -> Stream [] a
@@ -219,37 +208,92 @@ runStreams (Streams ss _) = foldl' mappend mempty ss
 
 {-# SPECIALIZE runStreams :: Streams Seq a -> Stream Seq a #-}
 
-data BitstreamState = BitstreamState !SeqStreams !Position
+-- So we have Streams, which are Sequences of Stream.
+-- S0 # # # # # # # # # # # # # # # # # # # +
+-- S1 # # # # #
+-- S2 # # # # # # # # +
+-- S3 # # +
+-- S4 # #
+
+fs :: Stream Seq a -> [Stream Seq a] -> Put
+fs (S _ _ 0)          [] = pure ()
+fs (S _ (Buff _ b) _) [] = bPut b
+fs b (x:xs) = let !(S w b'@(Buff n _) _) = b <> x in
+                mapM_ bPut w >> fs (S mempty b' n) xs
+
+data BitstreamState = BitstreamState !SeqStreams !Position deriving Show
 
 bssPosition (BitstreamState _ p) = p
 
 newtype Bitstream a = Bitstream { unBitstream :: State BitstreamState a }
   deriving (Functor, Applicative, Monad, MonadFix)
 
-stream :: (ListStream, Position, a) -> ListStream
+stream :: (SeqStream, Position, a) -> SeqStream
 stream (s,_,_) = s
-position :: (ListStream, Position, a) -> Position
+position :: (SeqStream, Position, a) -> Position
 position (_,p,_) = p
-value :: (ListStream, Position, a) -> a
+value :: (SeqStream, Position, a) -> a
 value (_,_,v) = v
 
-runBitstream :: Position -> Bitstream a -> (ListStream, Position, a)
-runBitstream p (Bitstream f) = case runState f (BitstreamState mempty 0) of (a, BitstreamState ss p) -> (toListStream . runStreams $ ss, p, a)
-execBitstream :: Position -> Bitstream a -> [BType]
+-- I think we want something like putBitstream, which does the runState
+-- and isntead of runStreams, does putStreams
+--
+putBitstream :: Position -> Bitstream a -> Put
+putBitstream p (Bitstream f) = case snd (runState f (BitstreamState mempty 0))
+  of BitstreamState ss _ -> putStreams ss
+-- ss is Seq (Streams Seq a)
+putStreams :: Streams Seq a -> Put
+putStreams (Streams ss total_len) = fs mempty (toList ss)
+
+putStream :: Stream Seq a -> PutM (Stream Seq a)
+putStream (S as b p) = mapM_ bPut as >> (pure $ S mempty b p)
+
+runBitstream :: Position -> Bitstream a -> (SeqStream, Position, a)
+runBitstream p (Bitstream f) = case runState f (BitstreamState mempty 0)
+  of (a, BitstreamState ss p) -> (runStreams $ ss, p, a)
+
+execBitstream :: Position -> Bitstream a -> Seq BType
 execBitstream p a = _words . stream . runBitstream p $ a >> alignWord8
+
 evalBitstream :: Position -> Bitstream a -> a
 evalBitstream p = value . runBitstream p
 
+bitstreamBytes :: Position -> Bitstream a -> [Word8]
+bitstreamBytes p a = let (S ws (Buff _ b) l) = stream . runBitstream p $ a >> alignWord8
+                         in take (l `div` 8) $ (concatMap bToWord8 . toList $ ws) ++ bToWord8 b
+
+-- NOTE: Be sure not to be strict in the buffer.  Strictness in the
+-- buffer will prevent recursive do.
 streams :: Foldable f => f BType -> Buff -> Position -> SeqStreams
-streams w b p
+streams !w b !p
   | p == 0 = mempty
   | otherwise = Streams (pure $ S (Seq.fromList . toList $ w) b p) p
 
-{-# SPECIALIZE streams :: [BType] -> Buff -> Position -> SeqStreams #-}
+-- {-# SPECIALIZE streams :: [BType] -> Buff -> Position -> SeqStreams #-}
 bitstream :: Foldable f => f BType -> Buff -> Int -> Bitstream ()
-bitstream w b p = Bitstream $ modify' $ \(BitstreamState ss p') -> BitstreamState (ss <> streams w b p) (p + p')
-
+bitstream !w b !p = Bitstream $ modify' $ \(BitstreamState ss p') -> BitstreamState (ss <> streams w b p) (p + p')
 {-# SPECIALIZE bitstream :: [BType] -> Buff -> Int -> Bitstream () #-}
+
+bitstream' :: Foldable f => f BType -> Buff -> Int -> Bitstream ()
+bitstream' !w !b !p = Bitstream $ modify' $ \(BitstreamState ss p') -> BitstreamState (ss <> streams w b p) (p + p')
+{-# SPECIALIZE bitstream' :: [BType] -> Buff -> Int -> Bitstream () #-}
+
+mkBitstream :: (Integral a, FiniteBits a) => Word64 -> a -> Bitstream ()
+mkBitstream !n b | n' < bSize = bitstream [] (mkBuff n' (fromIntegral b)) n'
+                 | otherwise = bitstream [shift' i | i <- [0..d-1]] (mkBuff m (shift' d)) n'
+  where n' = fromIntegral n
+        (d,m) = n' `divMod` bSize
+        shift' :: Int -> BType
+        shift' n = fromIntegral (shift b (-n*bSize))
+
+mkBitstream' :: (Integral a, FiniteBits a) => Word64 -> a -> Bitstream ()
+mkBitstream' !n !b | n' < bSize = bitstream [] (mkBuff n' (fromIntegral b)) n'
+                   | otherwise = bitstream [shift' i | i <- [0..d-1]] (mkBuff m (shift' d)) n'
+  where n' = fromIntegral n
+        (d,m) = n' `divMod` bSize
+        shift' :: Int -> BType
+        shift' n = fromIntegral (shift b (-n*bSize))
+
 -- Monadic Bitstream API
 
 withOffset :: Int -> Bitstream a -> Bitstream a
@@ -269,7 +313,7 @@ locWords :: HasCallStack => Bitstream Word32
 locWords = Bitstream $ gets $ fromIntegral . (`div` 32) . bssPosition
 
 emitBit :: HasCallStack => Bool -> Bitstream ()
-emitBit True  = bitstream [] (Buff 1 (setBit zeroBits bSize)) 1
+emitBit True  = bitstream [] (Buff 1 1) 1
 emitBit False = bitstream [] (Buff 1 0) 1
 
 emitBits :: HasCallStack => Int -> BType -> Bitstream ()
@@ -281,69 +325,49 @@ emitBits n b  | n < 8 = do
                  bitstream [] buff n
               | otherwise = error $ "cannot emit " ++ show n ++ " bits from Word8."
 
-emitWord8 :: Word8 -> Bitstream ()
-emitWord8 w = bitstream [fromIntegral w] nullBuff 8
+emitWord8 :: HasCallStack => Word8 -> Bitstream ()
+emitWord8 = mkBitstream 8
+emitWord32R :: HasCallStack => Word32 -> Bitstream ()
+emitWord32R = mkBitstream 32 . byteSwap32
+emitWord32 :: HasCallStack => Word32 -> Bitstream ()
+emitWord32 = mkBitstream 32
 
-emitWord32R :: Word32 -> Bitstream ()
-emitWord32R w = bitstream [fromIntegral (shift w (-24))
-                          ,fromIntegral (shift w (-16))
-                          ,fromIntegral (shift w  (-8))
-                          ,fromIntegral w] nullBuff 32
-emitWord32 :: Word32 -> Bitstream ()
-emitWord32 w = bitstream  [fromIntegral (shift w  (-0))
-                          ,fromIntegral (shift w  (-8))
-                          ,fromIntegral (shift w (-16))
-                          ,fromIntegral (shift w (-24))] nullBuff 32
-
-emitFixed :: Word64 -> Word64 -> Bitstream ()
+emitFixed :: HasCallStack => Word64 -> Word64 -> Bitstream ()
 emitFixed 0 _ = pure ()
-emitFixed n w | n < 8  = bitstream []     (mkBuff  n'     (off  0 w)) n'
-              | n < 16 = bitstream [off  0 w] (mkBuff (n'-8)  (off  8 w)) n'
-              | n < 24 = bitstream [off  0 w
-                                                ,off  8 w] (mkBuff (n'-16) (off 16 w)) n'
-              | n < 32 = bitstream [off  0 w
-                                    ,off  8 w
-                                    ,off 16 w] (mkBuff (n'-24) (off 24 w)) n'
-              | n < 40 = bitstream [off  0 w
-                                    ,off  8 w
-                                    ,off 16 w
-                                    ,off 24 w] (mkBuff (n'-32) (off 32 w)) n'
-              | n < 48 = bitstream [off  0 w
-                                    ,off  8 w
-                                    ,off 16 w
-                                    ,off 24 w
-                                    ,off 32 w] (mkBuff (n'-40) (off 40 w)) n'
-              | n < 56 = bitstream [off  0 w
-                                    ,off  8 w
-                                    ,off 16 w
-                                    ,off 24 w
-                                    ,off 32 w
-                                    ,off 40 w] (mkBuff (n'-48) (off 48 w)) n'
-              | n < 64 = bitstream [off  0 w
-                                  ,off  8 w
-                                  ,off 16 w
-                                  ,off 24 w
-                                  ,off 32 w
-                                  ,off 40 w
-                                  ,off 48 w] (mkBuff (n'-56) (off 56 w)) n'
-              | n == 64 = bitstream [ off  0 w, off  8 w, off 16 w, off 24 w
-                                    , off 32 w, off 40 w, off 48 w, off 56 w]
-                                    nullBuff
-                                    64
-              | otherwise = error $ "invalid number of bits. Cannot emit " ++ show n ++ " bits from Word64."
-    where off :: Int -> Word64 -> BType
-          off n w = fromIntegral (shift w (-n))
-          n' = fromIntegral n
+emitFixed !n _ | n > 64 = error $ "invalid number of bits. Cannot emit " ++ show n ++ " bits from Word64."
+emitFixed !n !w = mkBitstream' n w
 
 emitVBR :: HasCallStack => Word64 -> Word64 -> Bitstream ()
--- emitVBR 0 _ = pure ()
-emitVBR n _ | n < 2 = error "emitting VBR 0 impossible."
-emitVBR n w = do
+--emitVBR 0 _ = pure ()
+emitVBR !n _ | n < 2 = error "emitting VBR 0 impossible."
+emitVBR !n !w = emitVBR_fast n w
+
+emitVBR_fast :: HasCallStack => Word64 -> Word64 -> Bitstream ()
+emitVBR_fast n w | l > 64 = emitVBR_slow n w
+                 | otherwise = emitFixed (fromIntegral l) (go w n')
+  where n' = fromIntegral n
+        mask :: Word64
+        mask = 2^(n'-1)-1
+        cont = 2^(n'-1)
+        msb x = finiteBitSize x - countLeadingZeros x
+        l = case (msb w) `divMod` (n'-1) of
+              (0,0) -> n'
+              (d,0) -> n' * d
+              (d,m) -> n' * (d+1)
+        go :: Word64 -> Int -> Word64
+        go w n = let tail = shift w (1-n)
+                 in if popCount tail == 0
+                    then w .&. mask
+                    else w .&. mask .|. cont .|. shift (go tail n) n
+emitVBR_slow :: HasCallStack => Word64 -> Word64 -> Bitstream ()
+emitVBR_slow !n !w =do
   emitFixed (n-1) w
   let tail = shift w (1-(fromIntegral n))
     in if popCount tail == 0
        then emitBit False
        else emitBit True >> emitVBR n tail
+
+  where logBase2 x = finiteBitSize x - 1 - countLeadingZeros x
 
 emitChar6 :: HasCallStack => Char -> Bitstream ()
 emitChar6 '_' = emitBits 6 63
@@ -371,8 +395,13 @@ alignWord32 = flip mod 32 <$> loc >>= \case
 writeFile
   :: HasCallStack
   => FilePath -> Bitstream a -> IO ()
-writeFile f = B.writeFile f . encode' . execBitstream 0
-  where encode' = Bin.runPut . mapM_ (Bin.put . bToOrder)
+writeFile f = B.writeFile f . Bin.runPut . putBitstream 0
+
+bitstreamBS :: HasCallStack => Bitstream a -> B.ByteString
+bitstreamBS = Bin.runPut . putBitstream 0
+
+-- encode' . execBitstream 0
+--  where encode' = Bin.runPut . mapM_ (Bin.put . bToOrder)
 -- * BitCode Header
 -- | put the BitCodeHeader, on darwin a special wrapper is
 -- apparently only required, to make it compatible with
@@ -397,24 +426,26 @@ withHeader isDarwin body = mdo
     locBytes -- get the number of bytes emitted.
 
   return ()
-  where emitDarwinHeader
-          :: Word32 -- ^ number of bytes in body
-          -> Bitstream ()
-        emitDarwinHeader len = do
-          emitWord32 0x0b17c0de                -- 0x0b17c0de   4
-          emitWord32 0                         -- version: 0  +4
-          emitWord32 20                        -- offset: 20  +4 <--.
-          emitWord32 len                       -- length      +4    |
-          emitWord32 cpuType                   --             +4 => 20 in total.
-            where
-              -- We are hardcoding x86_64 for now.
-              cpuType :: Word32
-              cpuType = 0x01000000 -- DARWIN_CPU_ARCH_ABI64
-                      +          7 -- DARWIN_CPU_TYPE_X86(7),
-                                   -- DARWIN_CPU_TYPE_ARM(12),
-                                   -- DARWIN_CPU_TYPE_POWERPC(18)
-        emitLLVMIRHeader :: Bitstream ()
-        emitLLVMIRHeader = emitWord32R 0x4243c0de -- 'BC' 0xc0de
+
+emitDarwinHeader
+  :: Word32 -- ^ number of bytes in body
+  -> Bitstream ()
+emitDarwinHeader len = do
+  emitWord32 0x0b17c0de                -- 0x0b17c0de   4
+  emitWord32 0                         -- version: 0  +4
+  emitWord32 20                        -- offset: 20  +4 <--.
+  emitWord32 len                       -- length      +4    |
+  emitWord32 cpuType                   --             +4 => 20 in total.
+  where
+    -- We are hardcoding x86_64 for now.
+    cpuType :: Word32
+    cpuType = 0x01000000 -- DARWIN_CPU_ARCH_ABI64
+            +          7 -- DARWIN_CPU_TYPE_X86(7),
+                         -- DARWIN_CPU_TYPE_ARM(12),
+                         -- DARWIN_CPU_TYPE_POWERPC(18)
+
+emitLLVMIRHeader :: Bitstream ()
+emitLLVMIRHeader = emitWord32R 0x4243c0de -- 'BC' 0xc0de
 
 -- Show instances. These make parsing debug output much easier.
 
@@ -429,6 +460,9 @@ instance Show Buff where
 instance (Functor f, Foldable f) => Show (Stream f a) where
   show (S ws (Buff n b) p) | null ws = show p ++ " bits: " ++ take n (showWord8' b)
                              | otherwise = show p ++ " bits: " ++ foldl1 (\x y -> x ++ " " ++ y) (fmap showWord8' ws) ++ " " ++ take n (showWord8' b)
-    where showWord8' w = map f $ [testBit w i | i <- [0..7]]
+    where showWord8' w = map f $ [testBit w i | i <- [0..bSize-1]]
           f True = '1'
           f False = '0'
+
+instance (Functor f, Foldable f) => Show (Streams f a) where
+  show (Streams ss len) = "total len: " ++ show len ++ ": " ++ (unlines $ map show $ toList ss)
