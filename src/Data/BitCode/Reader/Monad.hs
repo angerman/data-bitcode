@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns, CPP #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-unused-top-binds -fno-warn-unused-matches #-}
 module Data.BitCode.Reader.Monad
   ( BitCodeReader
   , evalBitCodeReader
@@ -11,19 +12,14 @@ module Data.BitCode.Reader.Monad
   where
 
 import Prelude hiding (read, readFile)
-import Data.Semigroup
+import Data.Semigroup (Semigroup, (<>))
 -- Utility
 import Data.Bits (FiniteBits, setBit, zeroBits)
 -- reading from file
 import qualified Data.ByteString as B (readFile,unpack)
 import Data.Word (Word8)
 import Data.Bits (testBit)
--- abbrev map
-import Data.Maybe (fromMaybe)
 -- for Pretty printing
-import qualified Text.PrettyPrint as PP
-import Data.ByteString (pack)
-import Data.ByteString.Char8 (unpack)
 
 import Control.Monad (MonadPlus(..))
 import Control.Applicative (Alternative(..))
@@ -89,7 +85,7 @@ instance Monad BitCodeReader where
 -- * MonadPlus
 instance MonadPlus BitCodeReader where
   mzero = BitCode $ \b -> PairS (Left "") b
-  m `mplus` n = BitCode $ \b -> let PairS a b' = runBitCodeReader m b
+  m `mplus` n = BitCode $ \b -> let PairS _ b' = runBitCodeReader m b
                                 in runBitCodeReader n b'
 
 -- * Alternative

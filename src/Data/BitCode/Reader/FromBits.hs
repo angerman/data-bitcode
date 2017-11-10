@@ -1,5 +1,6 @@
 {-# LANGUAGE TupleSections     #-}
 {-# LANGUAGE LambdaCase        #-}
+{-# OPTIONS_GHC #-}
 module Data.BitCode.Reader.FromBits where
 
 import Prelude hiding (fromEnum, toEnum)
@@ -80,7 +81,7 @@ parseBlock n abbrevs = parseLocated (parseSubBlock n <|> parseUnabbrevRecord n <
                           go id (Located _ r:bs) = go id (r:bs) -- ignore Located blocks, and just recurse to the contained block.
                           go _ ((UnabbrevRecord 1 [id]):bs) = go (fromIntegral id) bs
                           go id (r@(DefAbbrevRecord _):bs) = tellGlobalAbbrev id r >> go id bs
-                          go id (b:bs) = fail $ "*** Can not handle block: " ++ show b
+                          go _ (b:_) = fail $ "*** Can not handle block: " ++ show b
         parseUnabbrevRecord :: Int -> BitCodeReader BitCode
         parseUnabbrevRecord width = do
           readFixed width (fromEnum UNABBREV_RECORD)

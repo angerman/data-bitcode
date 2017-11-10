@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fprof-auto #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-unused-top-binds -fno-warn-unused-matches #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving, StandaloneDeriving, KindSignatures, BinaryLiterals, RecursiveDo, LambdaCase, RankNTypes, FlexibleContexts, BangPatterns #-}
 module Data.BitCode.Writer.Monad
   ( nullBuff, addBuff, mkBuff
@@ -45,8 +46,6 @@ import Control.Monad.Fix
 
 import GHC.Stack (HasCallStack)
 
-import Debug.Trace
-
 -- | The position in the stream.
 type Position = Int
 
@@ -54,6 +53,7 @@ bSize :: Int
 -- ensure the order is correct
 bToOrder :: BType -> BType
 bPut :: BType -> Put
+bToWord8 :: BType -> [Word8]
 
 -- Word64
 type BType = Word64
@@ -206,8 +206,6 @@ toListStream (S w b p) = S (toList w) b p
 runStreams :: Streams Seq a -> Stream Seq a
 runStreams (Streams ss _) = foldl' mappend mempty ss
 
-{-# SPECIALIZE runStreams :: Streams Seq a -> Stream Seq a #-}
-
 -- So we have Streams, which are Sequences of Stream.
 -- S0 # # # # # # # # # # # # # # # # # # # +
 -- S1 # # # # #
@@ -223,6 +221,7 @@ fs b (x:xs) = let !(S w b'@(Buff n _) _) = b <> x in
 
 data BitstreamState = BitstreamState !SeqStreams !Position deriving Show
 
+bssPosition :: BitstreamState -> Position
 bssPosition (BitstreamState _ p) = p
 
 newtype Bitstream a = Bitstream { unBitstream :: State BitstreamState a }
@@ -367,8 +366,6 @@ emitVBR_slow !n !w =do
        then emitBit False
        else emitBit True >> emitVBR n tail
 
-  where logBase2 x = finiteBitSize x - 1 - countLeadingZeros x
-
 emitChar6 :: HasCallStack => Char -> Bitstream ()
 emitChar6 '_' = emitBits 6 63
 emitChar6 '.' = emitBits 6 62
@@ -390,7 +387,7 @@ alignWord32 = flip mod 32 <$> loc >>= \case
   x | 32 - x < 8  -> emitBits (32 - x) 0
   x | 32 - x < 16 -> emitWord8 0 >> emitBits (24 - x) 0
   x | 32 - x < 24 -> emitWord8 0 >> emitWord8 0 >> emitBits (16 - x) 0
-  x | 32 - x < 32 -> emitWord8 0 >> emitWord8 0 >> emitWord8 0 >> emitBits (8 - x) 0
+    | otherwise   -> emitWord8 0 >> emitWord8 0 >> emitWord8 0 >> emitBits (8 - x) 0
 
 writeFile
   :: HasCallStack

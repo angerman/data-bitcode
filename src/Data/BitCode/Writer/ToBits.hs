@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fprof-auto #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing -fno-warn-unused-top-binds -fno-warn-unused-matches #-}
 {-# LANGUAGE TupleSections, RecursiveDo, FlexibleInstances #-}
 module Data.BitCode.Writer.ToBits
   (module Data.BitCode.Writer.Monad
