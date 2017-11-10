@@ -8,12 +8,12 @@ module Data.BitCode where
 import Prelude hiding (fromEnum, toEnum)
 import qualified Prelude as P
 
-import Data.Word  (Word32, Word64)
+import Data.Word  (Word64)
 import Data.Maybe (catMaybes)
 import Data.Bits (FiniteBits, finiteBitSize, countLeadingZeros)
 
 import GHC.Generics                      (Generic)
-import Data.Binary                       (Binary, decodeFile)
+import Data.Binary                       (Binary)
 
 --- Bit Codes ------------------------------------------------------------------
 -- see BitCodes.h (e.g. http://llvm.org/docs/doxygen/html/BitCodes_8h_source.html)
@@ -116,11 +116,11 @@ idOrCode (NRec i _) = i
 
 normalize :: BitCode -> Maybe NBitCode
 normalize (Block 0 _ _) = Nothing
-normalize (Block id _ b) = Just (NBlock id (catMaybes . map normalize $ b))
+normalize (Block ident _ b) = Just (NBlock ident (catMaybes . map normalize $ b))
 normalize (DefAbbrevRecord{}) = Nothing
 normalize (Located _ bs) = normalize bs
 normalize (UnabbrevRecord c vs) = Just (NRec (fromIntegral c) vs)
-normalize (AbbrevRecord _ flds) = let (code:ops) = map toVal . filter (not . isControl) $ flds
+normalize (AbbrevRecord _ flds) = let (code:ops) = map toVal' . filter (not . isControl) $ flds
                                   in Just (NRec (fromIntegral code) ops)
   where
     -- As Abbreviated records can contain arrays, and
@@ -134,24 +134,24 @@ normalize (AbbrevRecord _ flds) = let (code:ops) = map toVal . filter (not . isC
     isControl (Len _) = True
     isControl _       = False
 
-    toVal :: Field -> Val
-    toVal (Vbr _ n) = n
-    toVal (Fix _ n) = n
-    toVal (Len _)   = error "Len is a control op"
-    toVal (Chr c)   = fromIntegral . fromEnum $ c
-    toVal (W64 v)   = v
+    toVal' :: Field -> Val
+    toVal' (Vbr _ n) = n
+    toVal' (Fix _ n) = n
+    toVal' (Len _)   = error "Len is a control op"
+    toVal' (Chr c)   = fromIntegral . fromEnum $ c
+    toVal' (W64 v)   = v
 
 bitWidth :: (FiniteBits a) => a -> Int
 bitWidth x = finiteBitSize x - countLeadingZeros x
 
 -- | Extract the id or the code for a BitCode element
 denormalize :: NBitCode -> BitCode
-denormalize (NBlock id bs) = let bs' = map denormalize bs
-                                 ids = map idOrCode bs
-                                 abbrevWidth = fromIntegral $ if null ids
-                                                              then 2
-                                                              else max 2 (bitWidth (maximum ids))
-                             in Block id abbrevWidth (map denormalize bs)
+denormalize (NBlock ident bs) = let bs' = map denormalize bs
+                                    ids = map idOrCode bs
+                                    abbrevWidth = fromIntegral $ if null ids
+                                                                 then 2
+                                                                 else max 2 (bitWidth (maximum ids))
+                             in Block ident abbrevWidth bs'
 denormalize (NRec c vs) = UnabbrevRecord (fromIntegral c) vs
 
 records :: (Enum a) => [NBitCode] -> [(a, [Val])]
